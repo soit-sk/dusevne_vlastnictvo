@@ -1,34 +1,56 @@
-# This is a template for a Perl scraper on Morph (https://morph.io)
-# including some code snippets below that you should find helpful
+#!/usr/bin/perl
 
-# use LWP::Simple;
-# use HTML::TreeBuilder;
-# use Database::DumpTruck;
+use URI;
+use WWW::Mechanize;
+use HTML::TreeBuilder;
+use Database::DumpTruck;
 
-# use strict;
-# use warnings;
+use strict;
+use warnings;
 
-# # Read out and parse a web page
-# my $tb = HTML::TreeBuilder->new_from_content(get('http://example.com/'));
+my $baseurl = 'http://www.dusevnevlastnictvo.gov.sk';
 
-# # Look for <tr>s of <table id="hello">
-# my @rows = $tb->look_down(
-#     _tag => 'tr',
-#     sub { shift->parent->attr('id') eq 'hello' }
-# );
+my $root = new URI($baseurl . '/Default.aspx?menu=1400_1');
+my $mech = new WWW::Mechanize;
+my $dt = new Database::DumpTruck(
+    { dbname => 'data.sqlite', table => 'swdata' });
 
-# # Open a database handle
-# my $dt = Database::DumpTruck->new({dbname => 'data.sqlite', table => 'data'});
-#
-# # Insert content of <td id="name"> and <td id="age"> into the database
-# $dt->insert([map {{
-#     Name => $_->look_down(_tag => 'td', id => 'name')->content,
-#     Age => $_->look_down(_tag => 'td', id => 'age')->content,
-# }} @rows]);
+$mech->get($root);
+my $response =
+    $mech->click('ctl00$ContentPlaceHolder1$m_Documents$m_SelectAll')->content;
+my $tree = HTML::TreeBuilder->new_from_content($response);
 
-# You don't have to do things with the HTML::TreeBuilder and Database::DumpTruck
-# libraries. You can use whatever libraries are installed on Morph for Perl
-# (https://github.com/openaustralia/morph-docker-perl/blob/master/Dockerfile)
-# and all that matters is that your final data is written to an Sqlite
-# database called data.sqlite in the current working directory which has at
-# least a table called data.
+my @results = $tree->find_by_attribute('class', 'tablegrid')->find('tr');
+
+foreach my $tr (@results) {
+    my $class = $tr->attr('class') // '';
+    next if ($class !~ /^tablerow/);
+
+    my @tds = $tr->find('td');
+
+    my %row;
+
+    $row{'nazov'} = $tds[0]->as_trimmed_text;
+    $row{'datum'} = $tds[1]->as_trimmed_text;
+    $row{'kategoria'} = $tds[2]->as_trimmed_text;
+    $row{'jazyk'} = $tds[3]->as_trimmed_text;
+    $row{'nazov_prilohy'} = $tds[4]->as_trimmed_text;
+    $row{'url_prilohy'} = $baseurl . $tds[4]->find('a')->attr('href');
+    (
+        $row{'nazov2'},
+        $row{'pravny_odbor'},
+        $row{'spisova_znacka'}
+    ) =
+        $row{'nazov'} =~ m/^(.*\d{4})\..*: (.*)Spis.*: (.*)$/;
+
+    $root = $baseurl . $tds[0]->find('a')->attr('href');
+    $mech->get($root);
+    $tree = HTML::TreeBuilder->new_from_content($mech->content());
+
+    my @trs = $tree->find_by_attribute('class', 'desctable')->find('tr');
+    my $code_tr = $trs[9];
+    my @code_tds = $code_tr->find('td');
+    $row{'kod_dokumentu'} = $code_tds[1]->as_trimmed_text;
+
+    $dt->insert (\%row);
+}
