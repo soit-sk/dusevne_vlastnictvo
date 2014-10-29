@@ -4,6 +4,7 @@ use URI;
 use WWW::Mechanize;
 use HTML::TreeBuilder;
 use Database::DumpTruck;
+use Encode qw/decode_utf8/;
 
 use strict;
 use warnings;
@@ -18,7 +19,7 @@ my $dt = new Database::DumpTruck(
 $mech->get($root);
 my $response =
     $mech->click('ctl00$ContentPlaceHolder1$m_Documents$m_SelectAll')->content;
-my $tree = HTML::TreeBuilder->new_from_content($response);
+my $tree = HTML::TreeBuilder->new_from_content(decode_utf8($response));
 
 my @results = $tree->find_by_attribute('class', 'tablegrid')->find('tr');
 
