@@ -53,5 +53,7 @@ foreach my $tr (@results) {
     my @code_tds = $code_tr->find('td');
     $row{'kod_dokumentu'} = $code_tds[1]->as_trimmed_text;
 
-    $dt->insert (\%row);
+    $dt->upsert (\%row);
 }
+
+$dt->create_index(['spisova_znacka'], undef, 'IF NOT EXISTS', 'UNIQUE');
